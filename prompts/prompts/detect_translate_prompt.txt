@@ -1,0 +1,10 @@
+Detect the source language of the following text and then translate it to $tgt.
+
+Output requirements:
+1) First line must be: Detected language: <language>
+2) After a blank line, return ONLY the translated text (preserve formatting).
+
+Text:
+$text
+
+Do not include any additional commentary.
