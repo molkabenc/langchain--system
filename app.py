@@ -1,4 +1,4 @@
-# app.py - Version finale sans erreur
+# app.py - Version with Runnables and Parallel Runnables
 import streamlit as st
 import json
 import os
@@ -16,25 +16,18 @@ st.markdown("Analysez vos phrases pour obtenir : **Sentiment**, **Sujet principa
 # Vérification des imports
 try:
     from langchain_groq import ChatGroq
-    st.sidebar.success("✅ ChatGroq importé")
-except ImportError:
-    st.error("❌ langchain-groq non installé")
-    st.code("pip install langchain-groq")
+    from langchain_core.runnables import RunnableLambda, RunnableParallel
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import JsonOutputParser
+    st.sidebar.success("✅ LangChain modules importés")
+except ImportError as e:
+    st.error(f"❌ Modules LangChain non installés: {e}")
+    st.code("pip install langchain langchain-groq langchain-core")
     st.stop()
 
-# Solution simple : créer notre propre chaîne
-class SimpleChain:
-    """Chaîne simple pour exécuter des prompts"""
-    def __init__(self, llm, prompt_template):
-        self.llm = llm
-        self.prompt_template = prompt_template
-    
-    def run(self, text):
-        # Remplacer le placeholder {text} dans le template
-        prompt = self.prompt_template.replace("{text}", text)
-        # Appeler le modèle
-        response = self.llm.invoke(prompt)
-        return response.content if hasattr(response, 'content') else str(response)
+# Notebook 24 Pattern: Runnables and Parallel Runnables
+# Preparation function to format input for template
+prep_for_template = RunnableLambda(lambda text: {"text": text})
 
 # Configuration API
 st.sidebar.header("⚙️ Configuration API")
@@ -87,32 +80,48 @@ except Exception as e:
     st.error(f"❌ Erreur : {str(e)}")
     st.stop()
 
-# Template du prompt
-PROMPT_TEMPLATE = """
+# Template du prompt using ChatPromptTemplate
+PROMPT_TEMPLATE = ChatPromptTemplate.from_template("""
 Analyse cette phrase : "{text}"
 
 Réponds UNIQUEMENT en JSON avec ce format exact :
 
-{
+{{
   "sentiment": "POSITIF" ou "NÉGATIF" ou "NEUTRE",
   "sujet_principal": "1-3 mots maximum",
   "question_suivi": "une question pertinente pour approfondir",
   "explication": "explication courte de l'analyse"
-}
+}}
 
 Exemple de réponse :
-{
+{{
   "sentiment": "POSITIF",
   "sujet_principal": "Collaboration",
   "question_suivi": "Quels sont les bénéfices attendus de cette collaboration ?",
   "explication": "La phrase exprime de la satisfaction et un sentiment positif concernant une collaboration."
-}
+}}
 
-Maintenant, analyse cette phrase :
-"""
+Maintenant, analyse cette phrase et réponds uniquement avec le JSON.
+""")
 
-# Initialiser notre chaîne simple
-chain = SimpleChain(llm, PROMPT_TEMPLATE)
+# JSON Output Parser for automatic parsing
+json_parser = JsonOutputParser()
+
+# Build the chain using LCEL (LangChain Expression Language)
+# Pattern: prep_for_template | prompt | llm | parser
+chain = prep_for_template | PROMPT_TEMPLATE | llm | json_parser
+
+# Optional: Parallel chains for multiple analyses
+# This demonstrates parallel runnables from Notebook 24
+# Note: Both branches receive the same raw text input
+parallel_chain = RunnableParallel(
+    main_analysis=chain,  # This uses prep_for_template internally
+    metadata=prep_for_template | RunnableLambda(lambda data: {
+        "length": len(data["text"]),
+        "word_count": len(data["text"].split()),
+        "has_punctuation": any(c in data["text"] for c in "!?.")
+    })
+)
 
 # Interface principale
 st.header("📝 Analyse de phrase")
@@ -133,67 +142,59 @@ with col1:
 if analyze_btn and text.strip():
     with st.spinner("🧠 Analyse en cours..."):
         try:
-            # Appeler notre chaîne
-            response = chain.run(text)
+            # Use parallel runnable to get both analysis and metadata
+            parallel_result = parallel_chain.invoke(text)
             
-            # Nettoyer la réponse
-            response = response.strip()
+            # Extract results
+            result = parallel_result["main_analysis"]
+            metadata = parallel_result["metadata"]
             
-            # Extraire le JSON
-            start = response.find('{')
-            end = response.rfind('}') + 1
-            if start != -1 and end != 0:
-                json_str = response[start:end]
-                result = json.loads(json_str)
+            # Afficher les résultats
+            st.success("✅ Analyse terminée !")
+            
+            # Métriques
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                sentiment = result.get("sentiment", "NEUTRE")
+                if sentiment == "POSITIF":
+                    st.markdown("### 😊 POSITIF")
+                    st.success("Sentiment positif détecté")
+                elif sentiment == "NÉGATIF":
+                    st.markdown("### 😔 NÉGATIF")
+                    st.error("Sentiment négatif détecté")
+                else:
+                    st.markdown("### 😐 NEUTRE")
+                    st.info("Sentiment neutre détecté")
+            
+            with col2:
+                st.markdown("### 📌 Sujet")
+                st.write(f"**{result.get('sujet_principal', 'N/A')}**")
+            
+            with col3:
+                st.markdown("### ❓ Question")
+                st.write(result.get('question_suivi', 'N/A'))
+            
+            # Détails
+            with st.expander("📋 Détails de l'analyse"):
+                st.write(f"**Phrase analysée :**")
+                st.info(f'"{text}"')
                 
-                # Afficher les résultats
-                st.success("✅ Analyse terminée !")
+                st.write(f"**Métadonnées (via Parallel Runnable) :**")
+                st.json(metadata)
                 
-                # Métriques
-                col1, col2, col3 = st.columns(3)
+                st.write(f"**Explication :**")
+                st.success(result.get('explication', 'N/A'))
                 
-                with col1:
-                    sentiment = result.get("sentiment", "NEUTRE")
-                    if sentiment == "POSITIF":
-                        st.markdown("### 😊 POSITIF")
-                        st.success("Sentiment positif détecté")
-                    elif sentiment == "NÉGATIF":
-                        st.markdown("### 😔 NÉGATIF")
-                        st.error("Sentiment négatif détecté")
-                    else:
-                        st.markdown("### 😐 NEUTRE")
-                        st.info("Sentiment neutre détecté")
-                
-                with col2:
-                    st.markdown("### 📌 Sujet")
-                    st.write(f"**{result.get('sujet_principal', 'N/A')}**")
-                
-                with col3:
-                    st.markdown("### ❓ Question")
-                    st.write(result.get('question_suivi', 'N/A'))
-                
-                # Détails
-                with st.expander("📋 Détails de l'analyse"):
-                    st.write(f"**Phrase analysée :**")
-                    st.info(f'"{text}"')
-                    
-                    st.write(f"**Explication :**")
-                    st.success(result.get('explication', 'N/A'))
-                    
-                    # Code JSON brut
-                    st.write(f"**Réponse JSON :**")
-                    st.code(json.dumps(result, indent=2, ensure_ascii=False))
-                
-                # Animation
-                st.balloons()
-                
-            else:
-                st.error("❌ Format de réponse invalide")
-                st.code(f"Réponse brute : {response}")
-                
-        except json.JSONDecodeError:
-            st.error("❌ Erreur de décodage JSON")
-            st.code(f"Réponse : {response}")
+                # Code JSON brut
+                st.write(f"**Réponse JSON :**")
+                st.code(json.dumps(result, indent=2, ensure_ascii=False))
+            
+            # Animation
+            st.balloons()
+            
+        except json.JSONDecodeError as e:
+            st.error(f"❌ Erreur de décodage JSON: {e}")
         except Exception as e:
             st.error(f"❌ Erreur : {str(e)}")
 
@@ -217,7 +218,8 @@ for phrase in sample_phrases:
 # Footer
 st.markdown("---")
 st.caption("""
-🔧 **Mini-projet d'analyse de phrases** | Streamlit • Groq API  
+🔧 **Mini-projet d'analyse de phrases** | Streamlit • Groq API • LangChain Runnables  
 🎯 **Objectif :** Sentiment + Sujet + Question de suivi  
-🔗 **Documentation :** [LangChain Groq](https://docs.langchain.com/oss/python/integrations/chat/groq)
+✨ **Architecture :** Runnables, Parallel Runnables, Output Parsers (Notebook 24 Pattern)  
+🔗 **Documentation :** [LangChain LCEL](https://python.langchain.com/docs/expression_language/)
 """)
