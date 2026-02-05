@@ -1,0 +1,4 @@
+Translate the following text from $src to $tgt. Return ONLY the translated text and preserve formatting.
+
+Text:
+$text
