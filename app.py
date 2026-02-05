@@ -113,12 +113,13 @@ chain = prep_for_template | PROMPT_TEMPLATE | llm | json_parser
 
 # Optional: Parallel chains for multiple analyses
 # This demonstrates parallel runnables from Notebook 24
+# Note: Both branches receive the same raw text input
 parallel_chain = RunnableParallel(
-    main_analysis=chain,
-    metadata=RunnableLambda(lambda text: {
-        "length": len(text),
-        "word_count": len(text.split()),
-        "has_punctuation": any(c in text for c in "!?.")
+    main_analysis=chain,  # This uses prep_for_template internally
+    metadata=prep_for_template | RunnableLambda(lambda data: {
+        "length": len(data["text"]),
+        "word_count": len(data["text"].split()),
+        "has_punctuation": any(c in data["text"] for c in "!?.")
     })
 )
 

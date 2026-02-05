@@ -95,7 +95,7 @@ streamlit run app.py
 
 Exécuter les tests de structure des chaînes :
 ```bash
-python3 /tmp/test_chains.py
+python3 test_chains.py
 ```
 
 ## 📄 Licence

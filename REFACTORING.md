@@ -144,7 +144,7 @@ json_parser                             │
 Run the test script to verify the implementation:
 
 ```bash
-python3 /tmp/test_chains.py
+python3 test_chains.py
 ```
 
 ## References
